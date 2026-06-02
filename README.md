@@ -14,7 +14,7 @@ Before you can compile and flash `et` scripts, you need two standard tools insta
 
 1. **Rust & Cargo:** The `et` compiler is built in Rust. You need it to run the build engine.
    * [Install Rust here](https://www.rust-lang.org/tools/install) (Takes 2 minutes).
-2. **Arduino IDE (or Arduino CLI):** `et` generates standard `.ino` C++ files. You will use the standard Arduino tools to upload the final code to your hardware.
+2. **Arduino IDE:** `et` generates standard `.ino` C++ files. You will use the standard Arduino tools to upload the final code to your hardware.
    * [Install Arduino IDE here](https://www.arduino.cc/en/software).
 
 ---
@@ -23,27 +23,35 @@ Before you can compile and flash `et` scripts, you need two standard tools insta
 
 1. Clone this repository to your local machine:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/et_lang.git
+   git clone [https://github.com/YOUR_USERNAME/et_lang.git](https://github.com/YOUR_USERNAME/et_lang.git)
    cd et_lang
    ```
-
 2. Create a new file called `main.et` and write your hardware logic.
-3. Run the compiler:
-   ```bash
-   cargo run main.et
-   ```
 
 ---
 
-## 🚀 Quick Start
+## 🏃‍♂️ Workflow: How to Compile & Flash
 
-To compile an `et` script into a flashable Arduino `.ino` file, pass your source file to the compiler via the command line:
+Because `et` is a transpiler, getting your code onto a physical board is a two-step process. 
 
+### Step 1: Compile the Code (Terminal)
+Open your terminal in the project folder and run your script through the Rust compiler:
 ```bash
 cargo run main.et
 ```
+The compiler will read your `main.et` file, format the logic, and instantly generate a production-ready C++ file called `main.ino` in the same directory.
 
-The compiler will automatically read your code, catch syntax commands, apply a smart "pretty-print" formatter, and export a clean `main.ino` file in the same directory, ready to be flashed to your microcontroller.
+### Step 2: Flash the Board (Arduino IDE)
+Now you need to send that generated C++ code to your physical hardware.
+1. Open the **Arduino IDE**.
+2. Click **File > Open** and select the `main.ino` file you just generated.
+   * *Note: The Arduino IDE requires `.ino` files to be inside a folder with the exact same name. If a warning pops up asking to create a `main` folder and move the file, click **OK**.*
+3. Plug your Arduino board into your computer via USB.
+4. Go to **Tools > Board** and select your specific hardware (e.g., Arduino Uno).
+5. Go to **Tools > Port** and select your USB connection.
+6. Click the **Upload** button (the Right Arrow icon `→`) in the top left corner.
+
+The Arduino software will beam the logic to your microchip, and your hardware will start running!
 
 ---
 
