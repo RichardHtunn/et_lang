@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="logo.png" atl="et logo" width="120"/>
+
 # ⚡ et 
 
 **et is a free, open-source hardware programming language built for performance, readability, and simplicity.**
