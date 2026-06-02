@@ -1,0 +1,19 @@
+# --- et Motor Speed Control ---
+
+set motor_pin 9
+set speed 0
+
+setup:
+    pin motor_pin out
+
+loop:
+    # Set the motor to the current speed variable
+    power motor_pin speed
+    wait 100
+
+    # Add 10 to the speed using the new math engine
+    math speed = speed + 10
+
+    # Reset speed if it hits max PWM (255)
+    if speed > 255:
+        math speed = 0
