@@ -23,7 +23,7 @@ Before you can compile and flash `et` scripts, you need two standard tools insta
 
 1. Clone this repository to your local machine:
    ```bash
-   git clone [https://github.com/YOUR_USERNAME/et_lang.git](https://github.com/YOUR_USERNAME/et_lang.git)
+   git clone https://github.com/YOUR_USERNAME/et_lang.git
    cd et_lang
    ```
 2. Create a new file called `main.et` and write your hardware logic.
