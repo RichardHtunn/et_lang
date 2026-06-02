@@ -1,12 +1,26 @@
-# et — A Minimalist Hardware Language ⚡
+<div align="center">
+
+# ⚡ et 
+
+**et is a free, open-source hardware programming language built for performance, readability, and simplicity.**
+
+[![Version](https://img.shields.io/badge/Release-v1.0.0-blue.svg?style=flat-square)]()
+[![Built with Rust](https://img.shields.io/badge/Built_with-Rust-orange.svg?style=flat-square&logo=rust)]()
+[![Target](https://img.shields.io/badge/Target-Arduino_C++-00979D.svg?style=flat-square&logo=arduino)]()
+[![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)]()
+
+[Quick Start](#-quick-start) • [How It Works](#️-how-it-works-under-the-hood) • [Syntax Reference](#-syntax-specification) • [Hardware Example](#️-full-application-blueprint-variable-motor-controller)
+
+<br/>
+</div>
+
+---
 
 **et** is a lightweight, whitespace-sensitive programming language designed to make hardware prototyping fast, intuitive, and beginner-friendly. 
 
 Built entirely in Rust, the `et` compiler acts as a smart transpiler. It handles memory layout, state tracking, and conditional branching, translating your clean logic into beautifully formatted, production-ready Arduino C++. 
 
 Instead of fighting with C++ boilerplate, missing semicolons, or confusing bracket structures, `et` allows you to focus purely on the hardware logic.
-
----
 
 ## 📦 Prerequisites
 
@@ -23,7 +37,7 @@ Before you can compile and flash `et` scripts, you need two standard tools insta
 
 1. Clone this repository to your local machine:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/et_lang.git
+   git clone [https://github.com/YOUR_USERNAME/et_lang.git](https://github.com/YOUR_USERNAME/et_lang.git)
    cd et_lang
    ```
 2. Create a new file called `main.et` and write your hardware logic.
