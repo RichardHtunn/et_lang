@@ -1,17 +1,17 @@
 use crate::lexer::Token;
 
-// --- 🌳 THE ABSTRACT SYNTAX TREE (AST) DATA STRUCTURES ---
+// --- 🌳 THE ABSTRACT SYNTAX TREE (AST) ---
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub tasks: Vec<Task>,        // Stores all your custom functions
-    pub main_loop: Vec<Stmt>,    // Stores the code inside 'loop:'
+    pub tasks: Vec<Task>,
+    pub main_loop: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Task {
     pub name: String,
-    pub params: Vec<String>,     // E.g., ["target_pin", "delay_time"]
+    pub params: Vec<String>,
     pub body: Vec<Stmt>,
 }
 
@@ -22,7 +22,13 @@ pub enum Stmt {
     TurnOn(String),
     TurnOff(String),
     Wait(String),
-    TaskCall(String, Vec<String>), // E.g., flash("13", "500")
+    TaskCall(String, Vec<String>),
+    // 🚀 NEW: Restoring V1 Features to the AST
+    Power(String, String),
+    Read(String, String),
+    MathOp(String, String),
+    RepeatBlock(String, Vec<Stmt>),
+    IfBlock(String, Vec<Stmt>, Vec<Stmt>), // condition, if-body, else-body
 }
 
 // --- 🧠 THE PARSER LOGIC ---
@@ -37,111 +43,113 @@ impl Parser {
         Parser { tokens, pos: 0 }
     }
 
-    // Peeks at the current token without consuming it
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.pos)
-    }
-
-    // Consumes the current token and moves forward
+    fn peek(&self) -> Option<&Token> { self.tokens.get(self.pos) }
     fn advance(&mut self) -> Option<&Token> {
         let token = self.tokens.get(self.pos);
         self.pos += 1;
         token
     }
 
-    // The main entry point: Parses the entire file into a 'Program'
     pub fn parse_program(&mut self) -> Program {
-        let mut program = Program {
-            tasks: Vec::new(),
-            main_loop: Vec::new(),
-        };
+        let mut program = Program { tasks: Vec::new(), main_loop: Vec::new() };
 
         while let Some(token) = self.peek() {
             match token {
-                // If we see the 'task' keyword, parse a function!
-                Token::Task => {
-                    program.tasks.push(self.parse_task());
-                }
-                // If we see 'loop:', parse the main execution block!
+                Token::Task => program.tasks.push(self.parse_task()),
                 Token::Loop => {
-                    self.advance(); // consume 'loop:'
-                    program.main_loop = self.parse_block();
-                }
-                // Skip indentation tokens at the root level
-                Token::Indent(_) => {
                     self.advance();
+                    program.main_loop = self.parse_block(1); // Main loop base indent is 1
                 }
-                // For V1 compatibility, handle global sets
+                Token::Indent(_) => { self.advance(); }
                 Token::Set(name, val) => {
-                    let s = Stmt::Set(name.clone(), val.clone());
-                    program.main_loop.push(s); // Hack for now: put globals in main loop
+                    program.main_loop.push(Stmt::Set(name.clone(), val.clone()));
                     self.advance();
                 }
-                _ => {
-                    self.advance(); // Ignore unknowns for now to prevent infinite loops
-                }
+                _ => { self.advance(); }
             }
         }
         program
     }
 
-    // Parses a single task: task name(arg1, arg2):
     fn parse_task(&mut self) -> Task {
-        self.advance(); // consume 'task' keyword
-
+        self.advance(); // consume 'task'
         let mut name = String::new();
-        if let Some(Token::Identifier(n)) = self.advance() {
-            name = n.clone();
-        }
-
+        if let Some(Token::Identifier(n)) = self.advance() { name = n.clone(); }
+        
         self.advance(); // consume '('
-
         let mut params = Vec::new();
-        // Keep reading arguments until we hit ')'
         while let Some(token) = self.peek() {
             match token {
-                Token::Identifier(param) => {
-                    params.push(param.clone());
-                    self.advance();
-                }
-                Token::Comma => { self.advance(); } // just skip commas
-                Token::RParen => {
-                    self.advance(); // consume ')'
-                    break;
-                }
+                Token::Identifier(param) => { params.push(param.clone()); self.advance(); }
+                Token::Comma => { self.advance(); }
+                Token::RParen => { self.advance(); break; }
                 _ => { self.advance(); }
             }
         }
-
-        // Now parse the indented code underneath the task declaration
-        let body = self.parse_block();
-
+        
+        let body = self.parse_block(1); // Task body base indent is 1
         Task { name, params, body }
     }
 
-    // Parses a block of indented statements
-    fn parse_block(&mut self) -> Vec<Stmt> {
+    // Parses a block of statements based on indentation depth
+    fn parse_block(&mut self, expected_indent: usize) -> Vec<Stmt> {
         let mut statements = Vec::new();
 
         while let Some(token) = self.peek() {
             match token {
-                Token::On(pin) => {
-                    statements.push(Stmt::TurnOn(pin.clone()));
+                Token::Indent(level) => {
+                    if *level < expected_indent { break; } // Block is over!
                     self.advance();
                 }
-                Token::Off(pin) => {
-                    statements.push(Stmt::TurnOff(pin.clone()));
+                Token::On(pin) => { statements.push(Stmt::TurnOn(pin.clone())); self.advance(); }
+                Token::Off(pin) => { statements.push(Stmt::TurnOff(pin.clone())); self.advance(); }
+                Token::Wait(time) => { statements.push(Stmt::Wait(time.clone())); self.advance(); }
+                Token::Power(pin, val) => { statements.push(Stmt::Power(pin.clone(), val.clone())); self.advance(); }
+                Token::Read(pin, var) => { statements.push(Stmt::Read(pin.clone(), var.clone())); self.advance(); }
+                Token::Math(var, expr) => { statements.push(Stmt::MathOp(var.clone(), expr.clone())); self.advance(); }
+                
+                // Nested Blocks (Recursion!)
+                Token::Repeat(times) => {
+                    let t = times.clone();
                     self.advance();
+                    let body = self.parse_block(expected_indent + 1);
+                    statements.push(Stmt::RepeatBlock(t, body));
                 }
-                Token::Wait(time) => {
-                    statements.push(Stmt::Wait(time.clone()));
+                Token::If(condition) => {
+                    let cond = condition.clone();
                     self.advance();
+                    let if_body = self.parse_block(expected_indent + 1);
+                    let mut else_body = Vec::new();
+                    
+                    // Check if an 'else' follows immediately
+                    if let Some(Token::Else) = self.peek() {
+                        self.advance();
+                        else_body = self.parse_block(expected_indent + 1);
+                    }
+                    statements.push(Stmt::IfBlock(cond, if_body, else_body));
                 }
-                // Recognize a Task Call (e.g., flash(13, 500))
+                
                 Token::Identifier(name) => {
                     let task_name = name.clone();
-                    self.advance(); // consume name
-
+                    self.advance();
                     if let Some(Token::LParen) = self.peek() {
-                        self.advance(); // consume '('
+                        self.advance();
                         let mut args = Vec::new();
+                        while let Some(arg_token) = self.peek() {
+                            match arg_token {
+                                Token::Identifier(val) | Token::Number(val) => { args.push(val.clone()); self.advance(); }
+                                Token::Comma => { self.advance(); }
+                                Token::RParen => { self.advance(); break; }
+                                _ => { self.advance(); }
+                            }
+                        }
+                        statements.push(Stmt::TaskCall(task_name, args));
+                    }
+                }
+                Token::Task | Token::Loop => break, 
+                _ => { self.advance(); }
+            }
+        }
+        statements
+    }
+}

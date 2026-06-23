@@ -1,99 +1,82 @@
-use crate::lexer::Token;
+use crate::parser::{Program, Stmt};
 
-pub fn generate_cpp(tokens: Vec<Token>) -> String {
-    let mut global_code = Vec::new();
-    let mut setup_code = Vec::new();
-    let mut loop_code = Vec::new();
+pub fn generate_cpp(program: Program) -> String {
+    let mut cpp = String::new();
+    let mut loop_counter = 0; // Needed to prevent variable collision in repeat blocks
     
-    let mut current_block = "global";
-    let mut loop_counter = 0;
-    let mut current_indent = 1;
+    cpp.push_str("#include <Arduino.h>\n\n");
 
-    for token in tokens {
-        match token {
-            Token::SetupBlock => { current_block = "setup"; current_indent = 1; }
-            Token::LoopBlock => { current_block = "loop"; current_indent = 1; }
-            Token::SetVar { name, value } => {
-                global_code.push(format!("int {} = {};", name, value));
-            }
-            Token::PinMode { pin, mode } => {
-                let cpp_mode = if mode == "out" { "OUTPUT" } else { "INPUT" };
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}pinMode({}, {});", prefix, pin, cpp_mode);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
-            Token::TurnOn { pin } => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}digitalWrite({}, HIGH);", prefix, pin);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
-            Token::TurnOff { pin } => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}digitalWrite({}, LOW);", prefix, pin);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
-            Token::Wait { amount } => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}delay({});", prefix, amount);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
-            Token::ReadPin { pin, var } => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}int {} = digitalRead({});", prefix, var, pin);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
-            Token::IfBlock { condition } => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}if ({}) {{", prefix, condition);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-                current_indent += 1;
-            }
-            Token::ElseBlock => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}else {{", prefix);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-                current_indent += 1;
-            }
-            Token::RepeatBlock { times } => {
-                let var_name = format!("i{}", loop_counter);
-                loop_counter += 1;
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}for (int {} = 0; {} < {}; {}++) {{", prefix, var_name, var_name, times, var_name);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-                current_indent += 1;
-            }
-            Token::Power { pin, value } => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}analogWrite({}, {});", prefix, pin, value);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
-            Token::MathOp { expression } => {
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}{};", prefix, expression);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
-            Token::CloseBlock => {
-                if current_indent > 1 { current_indent -= 1; }
-                let prefix = "  ".repeat(current_indent);
-                let line = format!("{}}}", prefix);
-                if current_block == "setup" { setup_code.push(line); } else { loop_code.push(line); }
-            }
+    for stmt in &program.main_loop {
+        if let Stmt::Set(name, val) = stmt {
+            cpp.push_str(&format!("int {} = {};\n", name, val));
         }
     }
+    cpp.push_str("\n");
 
-    let mut final_cpp = String::new();
-    final_cpp.push_str("#include <Arduino.h>\n\n");
-    
-    for line in global_code { final_cpp.push_str(&format!("{}\n", line)); }
-    if !final_cpp.ends_with("\n\n") { final_cpp.push_str("\n"); }
+    for task in &program.tasks {
+        let args: Vec<String> = task.params.iter().map(|p| format!("int {}", p)).collect();
+        cpp.push_str(&format!("void {}({}) {{\n", task.name, args.join(", ")));
+        for stmt in &task.body {
+            cpp.push_str(&generate_stmt(stmt, 1, &mut loop_counter));
+        }
+        cpp.push_str("}\n\n");
+    }
 
-    final_cpp.push_str("void setup() {\n");
-    for line in setup_code { final_cpp.push_str(&format!("{}\n", line)); }
-    final_cpp.push_str("}\n\n");
+    cpp.push_str("void setup() {\n");
+    for stmt in &program.main_loop {
+        if let Stmt::PinMode(pin, mode) = stmt {
+            let cpp_mode = if mode == "out" { "OUTPUT" } else { "INPUT" };
+            cpp.push_str(&format!("  pinMode({}, {});\n", pin, cpp_mode));
+        }
+    }
+    cpp.push_str("}\n\n");
 
-    final_cpp.push_str("void loop() {\n");
-    for line in loop_code { final_cpp.push_str(&format!("{}\n", line)); }
-    final_cpp.push_str("}\n");
+    cpp.push_str("void loop() {\n");
+    for stmt in &program.main_loop {
+        match stmt {
+            Stmt::Set(_, _) | Stmt::PinMode(_, _) => continue,
+            _ => cpp.push_str(&generate_stmt(stmt, 1, &mut loop_counter)),
+        }
+    }
+    cpp.push_str("}\n");
 
-    final_cpp
+    cpp
+}
+
+// A recursive function that generates perfectly indented C++
+fn generate_stmt(stmt: &Stmt, indent: usize, loop_counter: &mut usize) -> String {
+    let prefix = "  ".repeat(indent);
+    let mut code = String::new();
+
+    match stmt {
+        Stmt::TurnOn(pin) => code.push_str(&format!("{}digitalWrite({}, HIGH);\n", prefix, pin)),
+        Stmt::TurnOff(pin) => code.push_str(&format!("{}digitalWrite({}, LOW);\n", prefix, pin)),
+        Stmt::Wait(time) => code.push_str(&format!("{}delay({});\n", prefix, time)),
+        Stmt::TaskCall(name, args) => code.push_str(&format!("{}{}({});\n", prefix, name, args.join(", "))),
+        Stmt::Power(pin, val) => code.push_str(&format!("{}analogWrite({}, {});\n", prefix, pin, val)),
+        Stmt::Read(pin, var) => code.push_str(&format!("{}int {} = digitalRead({});\n", prefix, var, pin)),
+        Stmt::MathOp(var, expr) => code.push_str(&format!("{}{} = {};\n", prefix, var, expr)),
+        
+        Stmt::RepeatBlock(times, body) => {
+            let var_name = format!("i{}", loop_counter);
+            *loop_counter += 1;
+            code.push_str(&format!("{}for (int {} = 0; {} < {}; {}++) {{\n", prefix, var_name, var_name, times, var_name));
+            for s in body { code.push_str(&generate_stmt(s, indent + 1, loop_counter)); }
+            code.push_str(&format!("{}}}\n", prefix));
+        }
+        
+        Stmt::IfBlock(cond, if_body, else_body) => {
+            code.push_str(&format!("{}if ({}) {{\n", prefix, cond));
+            for s in if_body { code.push_str(&generate_stmt(s, indent + 1, loop_counter)); }
+            code.push_str(&format!("{}}}\n", prefix));
+            
+            if !else_body.is_empty() {
+                code.push_str(&format!("{}else {{\n", prefix));
+                for s in else_body { code.push_str(&generate_stmt(s, indent + 1, loop_counter)); }
+                code.push_str(&format!("{}}}\n", prefix));
+            }
+        }
+        _ => {}
+    }
+    code
 }
