@@ -25,97 +25,82 @@ pub enum Token {
     Comma,        // ','
 }
 
-pub fn tokenize(code: &str) -> Vec<Token> {
+pub fn tokenize(input: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
-    let mut indent_stack: Vec<usize> = Vec::new();
-
-    for line in code.lines() {
-        let stripped = line.trim();
-        if stripped.is_empty() || stripped.starts_with('#') { continue; }
-
-        let line_indent = line.len() - line.trim_start().len();
-
-        if stripped == "setup:" || stripped == "loop:" {
-            while !indent_stack.is_empty() {
-                indent_stack.pop();
-                tokens.push(Token::CloseBlock);
-            }
-        } else {
-            while !indent_stack.is_empty() && line_indent < *indent_stack.last().unwrap() {
-                indent_stack.pop();
-                tokens.push(Token::CloseBlock);
-            }
+    
+    for line in input.lines() {
+        // Skip comments and empty lines
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
         }
 
-        let parts: Vec<&str> = stripped.split_whitespace().collect();
-        if parts.is_empty() { continue; }
+        // 1. Calculate Indentation Level (Python-style block structure)
+        let indent_level = line.len() - line.trim_start().len();
+        tokens.push(Token::Indent(indent_level));
 
-        match parts[0] {
-            "setup:" => tokens.push(Token::SetupBlock),
-            "loop:" => tokens.push(Token::LoopBlock),
-            "set" => {
-                if parts.len() == 3 {
-                    tokens.push(Token::SetVar { name: parts[1].to_string(), value: parts[2].to_string() });
+        // 2. Process words and special symbols
+        // Splitting tokens while preserving parentheses and commas
+        let processed_line = trimmed
+            .replace("(", " ( ")
+            .replace(")", " ) ")
+            .replace(",", " , ");
+            
+        let words: Vec<&str> = processed_line.split_whitespace().collect();
+        let mut i = 0;
+        
+        while i < words.len() {
+            match words[i] {
+                // Core Structural Elements
+                "setup:" => tokens.push(Token::Setup),
+                "loop:" => tokens.push(Token::Loop),
+                
+                // V2.0 Structural Keywords & Symbols
+                "task" => tokens.push(Token::Task),
+                "(" => tokens.push(Token::LParen),
+                ")" => tokens.push(Token::RParen),
+                "," => tokens.push(Token::Comma),
+                
+                // Existing V1.0 Commands
+                "set" => {
+                    tokens.push(Token::Set(words[i+1].to_string(), words[i+2].to_string()));
+                    i += 2;
+                }
+                "pin" => {
+                    tokens.push(Token::Pin(words[i+1].to_string(), words[i+2].to_string()));
+                    i += 2;
+                }
+                "on" => {
+                    tokens.push(Token::On(words[i+1].to_string()));
+                    i += 1;
+                }
+                "off" => {
+                    tokens.push(Token::Off(words[i+1].to_string()));
+                    i += 1;
+                }
+                "wait" => {
+                    tokens.push(Token::Wait(words[i+1].to_string()));
+                    i += 1;
+                }
+                "power" => {
+                    tokens.push(Token::Power(words[i+1].to_string(), words[i+2].to_string()));
+                    i += 2;
+                }
+                
+                // Fallback for names, variables, and values
+                other => {
+                    // Check if it's a number or just a raw identifier variable name
+                    if other.chars().all(|c| c.is_numeric()) {
+                        tokens.push(Token::Number(other.to_string()));
+                    } else {
+                        // Strip trailing colon if it's part of an 'if' syntax
+                        let clean_name = other.trim_end_matches(':');
+                        tokens.push(Token::Identifier(clean_name.to_string()));
+                    }
                 }
             }
-            "pin" => {
-                if parts.len() == 3 {
-                    tokens.push(Token::PinMode { pin: parts[1].to_string(), mode: parts[2].to_string() });
-                }
-            }
-            "on" => {
-                if parts.len() == 2 {
-                    tokens.push(Token::TurnOn { pin: parts[1].to_string() });
-                }
-            }
-            "off" => {
-                if parts.len() == 2 {
-                    tokens.push(Token::TurnOff { pin: parts[1].to_string() });
-                }
-            }
-            "wait" => {
-                if parts.len() == 2 {
-                    tokens.push(Token::Wait { amount: parts[1].to_string() });
-                }
-            }
-            "read" => {
-                if parts.len() == 4 && parts[2] == "into" {
-                    tokens.push(Token::ReadPin { pin: parts[1].to_string(), var: parts[3].to_string() });
-                }
-            }
-            "if" => {
-                let mut condition = parts[1..].join(" ");
-                if condition.ends_with(':') { condition.pop(); }
-                tokens.push(Token::IfBlock { condition });
-                indent_stack.push(line_indent + 1);
-            }
-            "else:" | "else" => {
-                tokens.push(Token::ElseBlock);
-                indent_stack.push(line_indent + 1);
-            }
-            "repeat" => { 
-                let mut times = parts[1].to_string();
-                if times.ends_with(':') { times.pop(); }
-                tokens.push(Token::RepeatBlock { times });
-                indent_stack.push(line_indent + 1);
-            }
-            "power" => {
-                if parts.len() == 3 {
-                    tokens.push(Token::Power { pin: parts[1].to_string(), value: parts[2].to_string() });
-                }
-            }
-            "math" => {
-                let expression = parts[1..].join(" ");
-                tokens.push(Token::MathOp { expression });
-            }
-            _ => println!("Warning: Unknown command '{}'", stripped),
+            i += 1;
         }
     }
-
-    while !indent_stack.is_empty() {
-        indent_stack.pop();
-        tokens.push(Token::CloseBlock);
-    }
-
     tokens
 }
