@@ -1,19 +1,28 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    SetVar { name: String, value: String },
-    SetupBlock,
-    LoopBlock,
-    PinMode { pin: String, mode: String },
-    TurnOn { pin: String },
-    TurnOff { pin: String },
-    Wait { amount: String },
-    ReadPin { pin: String, var: String },
-    IfBlock { condition: String },
-    ElseBlock,
-    RepeatBlock { times: String },
-    Power { pin: String, value: String },
-    MathOp { expression: String },     
-    CloseBlock,
+    // V1.0 Tokens
+    Setup,
+    Loop,
+    Set(String, String),
+    Pin(String, String),
+    On(String),
+    Off(String),
+    Wait(String),
+    Power(String, String),
+    Read(String, String),
+    Math(String, String),
+    If(String),
+    Else,
+    Repeat(String),
+    Identifier(String),
+    Number(String),
+    Indent(usize),
+    
+    // 🚀 NEW V2.0 Tokens
+    Task,         // The 'task' keyword
+    LParen,       // '('
+    RParen,       // ')'
+    Comma,        // ','
 }
 
 pub fn tokenize(code: &str) -> Vec<Token> {
