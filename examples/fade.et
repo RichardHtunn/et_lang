@@ -1,0 +1,12 @@
+set led 9
+set brightness 0
+
+setup:
+    pin led out
+
+loop:
+    power led brightness
+    wait 50
+    math brightness = brightness + 25
+    if brightness > 250:
+        math brightness = 0

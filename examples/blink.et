@@ -1,0 +1,15 @@
+set led 13
+set pause 500
+
+task blink(pin, duration):
+    on pin
+    wait duration
+    off pin
+    wait duration
+
+setup:
+    pin led out
+
+loop:
+    repeat 2:
+        blink(led, pause)

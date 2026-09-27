@@ -1,62 +1,57 @@
+mod avr;
 mod lexer;
-mod parser; // NEW: Bring in the parser!
-mod generator;
+mod parser;
 
-use std::env;
-use std::fs;
-use std::process::Command;
+use std::{
+    env, fs,
+    path::PathBuf,
+    process::{Command, ExitCode},
+};
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Usage: cargo run <filename.et> [port]");
-        return;
-    }
-
-    let filename = &args[1];
-    println!("--- Compiling {} ---", filename);
-
-    let et_code = fs::read_to_string(filename)
-        .expect("Error: Could not read the file.");
-
-    // 1. LEXER: Turn text into Tokens
-    let tokens = lexer::tokenize(&et_code);
-    
-    // 2. PARSER: Turn Tokens into an Abstract Syntax Tree (AST)
-    let mut parser = parser::Parser::new(tokens);
-    let ast = parser.parse_program();
-    
-    // 3. GENERATOR: Turn the AST into C++
-    let cpp_output = generator::generate_cpp(ast);
-
-    // Auto-Folder Fix & Save File
-    let base_name = filename.replace(".et", "");
-    let folder_path = format!("./{}", base_name);
-    let output_filename = format!("{}/{}.ino", folder_path, base_name);
-
-    fs::create_dir_all(&folder_path).expect("Failed to create folder");
-    fs::write(&output_filename, cpp_output).expect("Error writing file");
-    
-    println!("Success! V2.0 C++ code saved to {}", output_filename);
-
-    // Auto-Flash Logic (Kept from your V1.2 update)
-    if args.len() >= 3 {
-        let port = &args[2];
-        println!("--- Flashing directly to {} ---", port);
-
-        let status = Command::new("arduino-cli")
-            .arg("compile")
-            .arg("--upload")
-            .arg("-b")
-            .arg("arduino:avr:uno") 
-            .arg("-p")
-            .arg(port)
-            .arg(&folder_path)
-            .status()
-            .expect("Failed to run arduino-cli.");
-
-        if status.success() {
-            println!("⚡ Hardware successfully updated! ⚡");
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("et: {message}");
+            ExitCode::FAILURE
         }
     }
+}
+
+fn run() -> Result<(), String> {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.is_empty() || args.len() > 2 {
+        return Err("usage: et <file.et> [serial-port]".into());
+    }
+    let path = PathBuf::from(&args[0]);
+    if path.extension().and_then(|s| s.to_str()) != Some("et") {
+        return Err("source file must have a .et extension".into());
+    }
+    let source = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let lines = lexer::tokenize(&source)?;
+    let program = parser::Parser::new(lines).parse_program()?;
+    let bytes = avr::compile(&program)?;
+    let output = path.with_extension("hex");
+    fs::write(&output, avr::intel_hex(&bytes)).map_err(|e| format!("{}: {e}", output.display()))?;
+    println!(
+        "Compiled {} to {} ({} flash bytes)",
+        path.display(),
+        output.display(),
+        bytes.len()
+    );
+
+    if let Some(port) = args.get(1) {
+        let status = Command::new("avrdude")
+            .args([
+                "-p", "m328p", "-c", "arduino", "-P", port, "-b", "115200", "-D", "-U",
+            ])
+            .arg(format!("flash:w:{}:i", output.display()))
+            .status()
+            .map_err(|e| format!("could not start avrdude: {e}"))?;
+        if !status.success() {
+            return Err(format!("avrdude failed with status {status}"));
+        }
+        println!("Uploaded to {port}");
+    }
+    Ok(())
 }

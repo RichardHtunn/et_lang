@@ -1,0 +1,13 @@
+set led 13
+set button 2
+
+setup:
+    pin led out
+    pin button pullup
+
+loop:
+    read button into pressed
+    if pressed == 0:
+        on led
+    else:
+        off led
