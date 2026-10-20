@@ -1,0 +1,56 @@
+# Nano 33 BLE Sense Rev2: train a two-class tilt classifier on the board.
+# Wire one button from D2 to GND for label 0, and one from D3 to GND for label 1.
+# Hold the board in each pose and press its button several times.
+board nano33blesense_rev2
+vector weights 2
+vector features 2
+set bias 0
+set score 0
+set guess 0
+set error 0
+set x 0
+set w 0
+set delta 0
+
+task train(label):
+    dot weights features into score
+    math score = score + bias
+    if score >= 0:
+        math guess = 1
+    else:
+        math guess = 0
+    math error = label - guess
+    get features 0 into x
+    get weights 0 into w
+    math delta = error * x
+    math w = w + delta
+    put weights 0 w
+    get features 1 into x
+    get weights 1 into w
+    math delta = error * x
+    math w = w + delta
+    put weights 1 w
+    math bias = bias + error
+
+setup:
+    pin 2 pullup
+    pin 3 pullup
+    pin 13 out
+
+loop:
+    read imu into ax ay az
+    put features 0 ax
+    put features 1 ay
+    read 2 into teach_zero
+    if teach_zero == 0:
+        train(0)
+    read 3 into teach_one
+    if teach_one == 0:
+        train(1)
+    dot weights features into score
+    math score = score + bias
+    if score >= 0:
+        on 13
+    else:
+        off 13
+    wait 50

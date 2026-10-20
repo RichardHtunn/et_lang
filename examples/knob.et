@@ -1,0 +1,15 @@
+# Connect a potentiometer between 5V and GND, with its wiper on A0.
+# The built-in LED turns on for readings resembling label 1.
+learn high_knob from "knob.csv"
+
+setup:
+    pin 13 out
+
+loop:
+    read analog 0 into reading
+    predict high_knob from reading into high
+    if high == 1:
+        on 13
+    else:
+        off 13
+    wait 50

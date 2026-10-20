@@ -1,0 +1,18 @@
+# A complete Arduino C++ sketch targeting Uno R4 Minima.
+# Replace this code with any sketch that uses libraries supported by the board.
+board uno_r4_minima
+arduino:
+    #include <Arduino.h>
+
+    void setup() {
+        pinMode(LED_BUILTIN, OUTPUT);
+        Serial.begin(9600);
+    }
+
+    void loop() {
+        digitalWrite(LED_BUILTIN, HIGH);
+        Serial.println("ET can use Arduino C++");
+        delay(500);
+        digitalWrite(LED_BUILTIN, LOW);
+        delay(500);
+    }

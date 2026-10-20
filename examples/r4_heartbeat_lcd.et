@@ -1,0 +1,42 @@
+# ET heartbeat counter on Uno R4 Minima with a parallel HD44780 LCD.
+# LCD wiring: RS=12, Enable=11, D4=5, D5=4, D6=3, D7=2.
+# Connect an analog pulse sensor to A0. Tune threshold for your sensor.
+board uno_r4_minima
+use "LiquidCrystal.h"
+device lcd = LiquidCrystal(12, 11, 5, 4, 3, 2)
+set threshold 600
+set signal 0
+set high 0
+set beats 0
+set bpm 0
+set window_start 0
+set last_beat 0
+set since_beat 0
+set elapsed_ms 0
+
+setup:
+    call lcd.begin(16, 2)
+    call lcd.print("Measuring pulse")
+    time into window_start
+
+loop:
+    read analog 0 into signal
+    if signal >= threshold:
+        if high == 0:
+            elapsed last_beat into since_beat
+            if since_beat >= 250:
+                math beats = beats + 1
+                time into last_beat
+            math high = 1
+    else:
+        math high = 0
+
+    elapsed window_start into elapsed_ms
+    if elapsed_ms >= 10000:
+        math bpm = beats * 6
+        call lcd.clear()
+        call lcd.print("BPM: ")
+        call lcd.print(bpm)
+        math beats = 0
+        time into window_start
+    wait 10

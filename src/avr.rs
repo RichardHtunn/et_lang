@@ -1,4 +1,7 @@
-use crate::parser::{Program, Stmt, StmtKind, Task};
+use crate::{
+    ml::Model,
+    parser::{Program, Stmt, StmtKind, Task},
+};
 use std::collections::HashMap;
 
 const FLASH_WORDS: usize = 16_384;
@@ -9,7 +12,10 @@ enum Binding {
     Var(u16),
 }
 
-pub fn compile(program: &Program) -> Result<Vec<u8>, String> {
+pub fn compile(program: &Program, models: &HashMap<String, Model>) -> Result<Vec<u8>, String> {
+    if program.board.is_some() || !program.vectors.is_empty() {
+        return Err("board and vector declarations require the Nano backend".into());
+    }
     let mut initial = HashMap::new();
     let mut order = Vec::new();
     for (name, value, line) in &program.constants {
@@ -69,6 +75,7 @@ pub fn compile(program: &Program) -> Result<Vec<u8>, String> {
         tasks,
         call_stack: Vec::new(),
         uses_pwm,
+        models,
     };
     for (address, value) in variables {
         compiler.ldi(24, value as u8);
@@ -108,7 +115,11 @@ fn scan(
 ) {
     for stmt in statements {
         match &stmt.kind {
-            StmtKind::Read(_, name) => {
+            StmtKind::Read(_, name) | StmtKind::ReadAnalog(_, name) => {
+                changed.insert(name.clone());
+                read_names.insert(name.clone());
+            }
+            StmtKind::Predict(_, _, name) => {
                 changed.insert(name.clone());
                 read_names.insert(name.clone());
             }
@@ -165,6 +176,7 @@ struct Compiler<'a> {
     tasks: HashMap<&'a str, &'a Task>,
     call_stack: Vec<String>,
     uses_pwm: bool,
+    models: &'a HashMap<String, Model>,
 }
 impl Compiler<'_> {
     fn emit(&mut self, word: u16) {
@@ -324,6 +336,65 @@ impl Compiler<'_> {
                     self.ldi(24, 1);
                     self.store_word(address, 24);
                 }
+                StmtKind::ReadAnalog(channel, name) => {
+                    let number = resolve(channel, values, stmt.line)?;
+                    if number > 5 {
+                        return Err(format!(
+                            "line {}: Uno analog channel must be 0 through 5",
+                            stmt.line
+                        ));
+                    }
+                    let address = match values.get(name) {
+                        Some(Binding::Var(address)) => *address,
+                        _ => {
+                            return Err(format!(
+                                "line {}: read target {} is not writable",
+                                stmt.line, name
+                            ));
+                        }
+                    };
+                    self.emit(cbi(0x07, number)); // DDRC: input
+                    self.emit(cbi(0x08, number)); // PORTC: no pull-up
+                    self.ldi(24, 0x40 | number as u8); // AVCC reference, ADC channel
+                    self.sts(0x007C, 24); // ADMUX
+                    self.ldi(24, 0xC7); // enable ADC, start conversion, prescaler 128
+                    self.sts(0x007A, 24); // ADCSRA
+                    let poll = self.words.len();
+                    self.lds(24, 0x007A);
+                    self.emit(0xFC00 | (24 << 4) | 6); // SBRC: skip jump when ADSC clears
+                    self.rjmp(poll, stmt.line)?;
+                    self.lds(24, 0x0078); // ADCL must be read first
+                    self.lds(25, 0x0079); // ADCH
+                    self.store_word(address, 24);
+                }
+                StmtKind::Predict(model_name, input, name) => {
+                    let model = self.models.get(model_name).copied().ok_or_else(|| {
+                        format!("line {}: unknown model {}", stmt.line, model_name)
+                    })?;
+                    let comparison = if model.one_when_high { ">=" } else { "<" };
+                    let assignment = |result: &str| Stmt {
+                        line: stmt.line,
+                        kind: StmtKind::Math(name.clone(), result.into()),
+                    };
+                    let prediction = Stmt {
+                        line: stmt.line,
+                        kind: StmtKind::If(
+                            format!("{input} {comparison} {}", model.threshold),
+                            vec![assignment("1")],
+                            vec![assignment("0")],
+                        ),
+                    };
+                    self.block(&[prediction], values, depth)?;
+                }
+                StmtKind::ReadImu(..)
+                | StmtKind::VectorGet(..)
+                | StmtKind::VectorPut(..)
+                | StmtKind::Dot(..) => {
+                    return Err(format!(
+                        "line {}: this ML operation requires board nano33blesense_rev2",
+                        stmt.line
+                    ));
+                }
                 StmtKind::Math(name, expr) => {
                     let address = match values.get(name) {
                         Some(Binding::Var(address)) => *address,
@@ -477,6 +548,21 @@ impl Compiler<'_> {
                     self.call_stack.pop();
                     result?;
                 }
+                StmtKind::Cpp(_) => {
+                    return Err(format!(
+                        "line {}: cpp: requires an explicit Arduino board",
+                        stmt.line
+                    ));
+                }
+                StmtKind::Time(_)
+                | StmtKind::Elapsed(_, _)
+                | StmtKind::While(_, _)
+                | StmtKind::ArduinoCall(_, _, _) => {
+                    return Err(format!(
+                        "line {}: this statement requires an explicit Arduino board",
+                        stmt.line
+                    ));
+                }
                 StmtKind::Unsupported(text) => {
                     return Err(format!(
                         "line {}: unsupported Uno native statement: {}",
@@ -585,7 +671,7 @@ mod tests {
     fn compile_source(source: &str) -> Result<Vec<u8>, String> {
         let lines = lexer::tokenize(source)?;
         let program = Parser::new(lines).parse_program()?;
-        compile(&program)
+        compile(&program, &HashMap::new())
     }
 
     #[test]
@@ -660,6 +746,37 @@ mod tests {
             .map(|b| u16::from_le_bytes([b[0], b[1]]))
             .collect();
         assert!(words.contains(&0x994A)); // SBIC PIND, 2
+    }
+
+    #[test]
+    fn analog_read_and_trained_prediction_compile() {
+        let source = "learn bright from \"light.csv\"\nsetup:\n    pin 13 out\nloop:\n    read analog 0 into light\n    predict bright from light into result\n    if result == 1:\n        on 13\n    else:\n        off 13\n";
+        let program = Parser::new(lexer::tokenize(source).unwrap())
+            .parse_program()
+            .unwrap();
+        let mut models = HashMap::new();
+        models.insert(
+            "bright".into(),
+            crate::ml::train("value,label\n100,0\n200,0\n800,1\n900,1\n").unwrap(),
+        );
+        let bytes = compile(&program, &models).unwrap();
+        let words: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        assert!(words.contains(&0x007A)); // ADCSRA
+        assert!(words.contains(&0x0078)); // ADCL
+        assert!(words.contains(&0x0079)); // ADCH
+        assert!(words.contains(&0xFD86)); // SBRC r24, 6
+        assert!(words.contains(&0x9A2D)); // LED on
+        assert!(words.contains(&0x982D)); // LED off
+    }
+
+    #[test]
+    fn missing_model_is_reported() {
+        let error =
+            compile_source("loop:\n    predict missing from 100 into result\n").unwrap_err();
+        assert!(error.contains("line 2: unknown model missing"));
     }
 
     #[test]

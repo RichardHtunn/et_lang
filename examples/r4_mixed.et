@@ -1,0 +1,21 @@
+# ET control flow with ordinary Arduino C++ and the standard Wire library.
+board uno_r4_minima
+cpp:
+    #include <Wire.h>
+set led 13
+
+setup:
+    pin led out
+    cpp:
+        Wire.begin();
+        Serial.begin(9600);
+
+loop:
+    read analog 0 into sensor
+    cpp:
+        Serial.println(v_sensor);
+    if sensor >= 600:
+        on led
+    else:
+        off led
+    wait 10
